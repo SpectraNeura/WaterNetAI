@@ -20,7 +20,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ===== 기본 파라미터 설정 =====
 LOOKBACK = 60  # 시퀀스 길이 (예: 60분)
 FEATURES = ['Q1', 'Q2', 'Q3', 'Q4', 'P1']  # 사용할 입력 피처
-TARGET = 'P1_flag'  # 타겟 (압력계 1번 이상 여부)
+TARGETS = ['P1_flag', 'P2_flag', 'P3_flag', 'P4_flag', 'P5_flag', 'P6_flag', 'P7_flag', 'P8_flag']  # 예측할 압력계 이상 여부 (8개)
+NUM_TARGETS = len(TARGETS)
 BATCH_SIZE = 64
 EPOCHS = 10
 LR = 1e-3
@@ -28,7 +29,7 @@ LR = 1e-3
 
 # ===== 1. 데이터 로드 및 전처리 =====
 def load_and_preprocess_data():
-    # datasets 폴더 내에 있는 TRAIN_A.csv와 TRAIN_B.csv 파일 읽기
+    # datasets 폴더 내의 TRAIN_A.csv와 TRAIN_B.csv 파일 읽기
     train_a_path = os.path.join('datasets', 'train', 'TRAIN_A.csv')
     train_b_path = os.path.join('datasets', 'train', 'TRAIN_B.csv')
 
@@ -46,19 +47,22 @@ def load_and_preprocess_data():
 
     # 입력 피처 스케일링 (선택한 FEATURES만 사용)
     scaler = StandardScaler()
-    # 여기서는 DataFrame 그대로 전달하여 컬럼 이름 유지
     df_train[FEATURES] = scaler.fit_transform(df_train[FEATURES])
 
     return df_train, scaler
 
 
 # ===== 2. 시퀀스 데이터 생성 함수 =====
-def create_sequences(df, lookback, feature_cols, target_col):
+def create_sequences(df, lookback, feature_cols, target_cols):
     X, y = [], []
     for i in range(len(df) - lookback):
         X.append(df.loc[i:i + lookback - 1, feature_cols].values)
-        y.append(df.loc[i + lookback, target_col])
-    return np.array(X), np.array(y)
+        # to_numpy(dtype=np.float32)로 명시적 변환
+        y.append(df.loc[i + lookback, target_cols].to_numpy(dtype=np.float32))
+    # X와 y를 float32 배열로 변환
+    X = np.array(X, dtype=np.float32)
+    y = np.array(y, dtype=np.float32)
+    return X, y
 
 
 # ===== 3. PyTorch 딥러닝 모델 정의 =====
@@ -68,7 +72,7 @@ class RNNModel(nn.Module):
     def __init__(self, input_size, hidden_size=64, num_layers=1):
         super(RNNModel, self).__init__()
         self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, 1)
+        self.fc = nn.Linear(hidden_size, NUM_TARGETS)  # 출력 차원 8
 
     def forward(self, x):
         out, _ = self.rnn(x)
@@ -82,7 +86,7 @@ class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_size=64, num_layers=1):
         super(LSTMModel, self).__init__()
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, 1)
+        self.fc = nn.Linear(hidden_size, NUM_TARGETS)
 
     def forward(self, x):
         out, _ = self.lstm(x)
@@ -96,7 +100,7 @@ class GRUModel(nn.Module):
     def __init__(self, input_size, hidden_size=64, num_layers=1):
         super(GRUModel, self).__init__()
         self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, 1)
+        self.fc = nn.Linear(hidden_size, NUM_TARGETS)
 
     def forward(self, x):
         out, _ = self.gru(x)
@@ -118,7 +122,7 @@ class TransformerModel(nn.Module):
             batch_first=True  # batch_first 옵션 추가
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.fc = nn.Linear(d_model, 1)
+        self.fc = nn.Linear(d_model, NUM_TARGETS)
 
     def forward(self, x):
         # x: (batch, seq, features)
@@ -148,7 +152,7 @@ class CNN_TransformerModel(nn.Module):
             batch_first=True  # batch_first 옵션 추가
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.fc = nn.Linear(d_model, 1)
+        self.fc = nn.Linear(d_model, NUM_TARGETS)
 
     def forward(self, x):
         # x: (batch, seq, features) -> Conv1d expects (batch, features, seq)
@@ -200,19 +204,20 @@ def train_dl_model(model, train_loader, val_loader, epochs=EPOCHS, lr=LR):
                 loss = criterion(outputs, batch_y)
                 val_loss += loss.item() * batch_x.size(0)
         val_loss /= len(val_loader.dataset)
-        print(f"Epoch {epoch + 1}/{epochs} | Train Loss: {train_loss} | Val Loss: {val_loss}")
+        print(f"Epoch {epoch + 1}/{epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
     return model
 
 
-# 딥러닝 모델 예측 함수 (T+1분 예측; 단일 타겟 -> threshold 0.5)
+# 딥러닝 모델 예측 함수 (T+1분 예측; 다중 타겟 -> 각 원소 threshold 0.5)
 def predict_with_dl_model(model, test_seq):
     model.eval()
     with torch.no_grad():
         # test_seq: (LOOKBACK, features) -> (1, LOOKBACK, features)
         x = torch.tensor(test_seq, dtype=torch.float32).unsqueeze(0).to(device)
-        output = model(x)
-        pred = output.item()
-    return int(pred > 0.5)
+        output = model(x)  # shape: (1, NUM_TARGETS)
+        # threshold 적용하여 0 또는 1로 변환 후 리스트로 반환
+        preds = (output.squeeze(0).cpu().numpy() > 0.5).astype(int).tolist()
+    return preds
 
 
 # ===== 5. 고전 모델 (ARIMA, SARIMA) 학습 및 예측 =====
@@ -236,7 +241,7 @@ def predict_with_classical_model(model_fit):
 if __name__ == '__main__':
     # ===== 6. 전체 데이터 로드 및 시퀀스 생성 =====
     df_train, scaler = load_and_preprocess_data()
-    X, y = create_sequences(df_train, LOOKBACK, FEATURES, TARGET)
+    X, y = create_sequences(df_train, LOOKBACK, FEATURES, TARGETS)
 
     # 시간 순서를 유지하며 학습/검증 데이터 분할
     split_idx = int(len(X) * 0.8)
@@ -245,9 +250,9 @@ if __name__ == '__main__':
 
     # 텐서 변환
     X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(-1)
+    y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
     X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
-    y_val_tensor = torch.tensor(y_val, dtype=torch.float32).unsqueeze(-1)
+    y_val_tensor = torch.tensor(y_val, dtype=torch.float32)
 
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
     val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
@@ -255,7 +260,8 @@ if __name__ == '__main__':
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     # ===== 7. 고전 모델 학습 (ARIMA, SARIMA) =====
-    series_train = df_train[TARGET].values
+    # 고전 모델은 단변량 시계열이므로, 여기서는 P1_flag (첫 번째 타겟)만 사용
+    series_train = df_train[TARGETS[0]].values
     arima_model_fit = train_arima_model(series_train)
     sarima_model_fit = train_sarima_model(series_train)
 
@@ -297,13 +303,13 @@ if __name__ == '__main__':
 
         # 각 딥러닝 모델 예측
         for name, model in trained_models.items():
-            pred_flag = predict_with_dl_model(model, test_seq)
+            pred_flags = predict_with_dl_model(model, test_seq)  # 예: [0, 0, 0, 0, 0, 0, 0, 0]
             results[name].append({
                 'ID': os.path.basename(file).split('.')[0],
-                'flag_list': [pred_flag]
+                'flag_list': pred_flags
             })
 
-        # 고전 모델 예측 (TEST 파일에 TARGET 컬럼이 없으므로 학습 데이터 기반 예시 사용)
+        # 고전 모델 예측: 테스트 파일에 TARGET 컬럼이 없으므로 학습 데이터 기반 예시 사용 (단일 값)
         try:
             pred_arima = predict_with_classical_model(arima_model_fit)
         except Exception as e:
