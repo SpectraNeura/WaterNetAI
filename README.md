@@ -35,28 +35,26 @@
 	* 실제 비정상 샘플에 대한 계산 방식 (*비정상 샘플은 샘플 내 압력계(P) 중 하나라도 이상(1)인 경우를 뜻함.)
 			1) Precision (정밀도)
 			![image](https://github.com/user-attachments/assets/e0fa4218-6937-4dc5-a45f-48de807afca6)
-   	
 
-    				* Matched Abnormal Weights : 예측과 실제 모두 이상(1)인 압력계들의 가중치 합
+				* Matched Abnormal Weights : 예측과 실제 모두 이상(1)인 압력계들의 가중치 합
 				* Predicted Abnormal Weights : 예측값이 이상(1)인 압력계들의 가중치 합
 				* False Positives Weights : 가중치가 0인 압력계에서 예측값이 이상(1)인 경우
 				* *가중치: 가중치는 실제 압력계 별 정상(0)/이상(1)의 여부와 달리 각 압력계에 대한 예측 배점 가중치를 뜻함. 가중치는 0 ~ 1의 수치를 가질 수 있음. 관망 내 압력계 별 배점 가중치는 내부 평가용 자료로 공개되지 않습니다. 단, 실제 답(GT)과 크게 다르지 않으며 정답에 근접한 예측에 대해 가산점을 주기 위한 용도.
    
 			2) Recall (재현율)
 			![image](https://github.com/user-attachments/assets/f935d87a-07f2-4e75-a9a1-82d848193cd7)
-  	 
-			
-				* Total Abnormal Weights: 실제 이상(1)인 압력계들의 가중치 합.
+
+       				* Total Abnormal Weights: 실제 이상(1)인 압력계들의 가중치 합.
    
 			3) F1 Score (가중치 기반)
 			![image](https://github.com/user-attachments/assets/d723091b-13e6-4a57-8c0e-e0fe21876225)
 
-				* Precision 또는 Recall이 정의되지 않으면 F1 = 0.
+   				* Precision 또는 Recall이 정의되지 않으면 F1 = 0.
 		* 리더보드 Score: 샘플 별로 계산된 구조 내 압력계별 변형 F1 Score의 평균
 				![image](https://github.com/user-attachments/assets/7c33321a-4d61-418f-a3e3-84e9525f2cf1)
-    	
-							
-				* 유효 샘플 수: 정상 샘플에서 False Positive가 없는 경우를 제외한 샘플의 개수
+    
+    				* 유효 샘플 수: 정상 샘플에서 False Positive가 없는 경우를 제외한 샘플의 개수
+
 * Public Score: 전체 테스트 샘플 중 '관망 구조 C' 샘플
 * Private Score: 전체 테스트 샘플 100%
 
